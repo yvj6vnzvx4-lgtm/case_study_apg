@@ -1,0 +1,19 @@
+# secrets
+.env
+# data (too large for git; see data/README.md)
+data/*
+!data/README.md
+*.duckdb
+*.duckdb.wal
+*.parquet
+!backend/serving/*.parquet
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# node
+node_modules/
+web/dist/
+# os
+.DS_Store
