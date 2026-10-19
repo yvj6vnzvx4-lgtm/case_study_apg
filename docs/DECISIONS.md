@@ -94,7 +94,7 @@ Two-stage ranking so we don't call Spotify ~1.6M times: rank everyone on catalog
   scout to confirm deal status before reaching out.
 - **Search keeps the global rank** (computed in SQL), so searching a name tells you where they stand overall.
 - CSV export for taking a shortlist into a meeting; responsive layout with a bottom sheet on phones.
-- Tests (25) run the real SQL pipeline on a fixture with one fake writer per rule, and check exact
+- Tests (30) run the real SQL pipeline on a fixture with one fake writer per rule, and check exact
   scores, so a change to weights or filters breaks a test on purpose.
 
 ## Hosting
@@ -114,6 +114,80 @@ Two-stage ranking so we don't call Spotify ~1.6M times: rank everyone on catalog
 - Trade-off: data refreshes need a rebuild + redeploy. Fine for a weekly catalog snapshot; see the
   realtime bonus answer for what changes when it isn't.
 
-## Bonus questions
-- **Realtime ranking:** TODO
-- **Metric other than catalog success:** TODO
+## Bonus: ranking in real time
+
+**Today** the ranking is a batch job: rebuild everything from parquet (~1 min), export a snapshot,
+redeploy. That's the right shape for a catalog snapshot that changes weekly, and it's what the
+brief's data supports. If the ranking had to react within seconds to new registrations, releases,
+streams or deals, four things change.
+
+1. **Events in, not files.** Ingest changes as a stream: new/changed share registrations (e.g. CWR
+   from societies), new ISRCs from distributors/DSP feeds, daily stream counts, deal signings. Each
+   event goes on a queue (Kafka, SQS, Vercel Queues) so spikes don't drop data and consumers can replay.
+
+2. **Update features incrementally.** Every feature here is a per-writer aggregate, so an event only
+   touches the writers on the affected song:
+   - new recording of work W → +1 recording (and maybe +1 distinct artist) for each writer on W.
+     Distinct counts need the set of artists per writer (small) or a HyperLogLog sketch at scale.
+   - publisher share registered → the writer's `is_published` flips and they leave the pool at once.
+   - Hard windows ("2023–2024") don't update cleanly in real time, so replace them with
+     **exponential decay**: on each new recording, `momentum = momentum · e^(−λ·Δt) + 1`. O(1) per
+     event, no window to slide, and old activity fades smoothly instead of falling off a cliff.
+
+3. **Split scoring from normalization.** Percentile ranks are global: one writer's change nudges
+   everyone's percentile, which would mean rescoring 20K writers per event. Instead, keep the
+   percentile **breakpoints** (e.g. 1,000 quantiles per factor) in a cached table recomputed every
+   few minutes, and score a changed writer against them in O(log n). Rank order is maintained in a
+   sorted index (Redis sorted set or a Postgres index on score), so `GET /writers?limit=25` reads
+   the top of the index instead of sorting.
+
+4. **Change storage to match.** DuckDB is excellent for the analytical rebuild but is single-writer.
+   Real time needs a transactional store for row updates (Postgres) plus the sorted index for
+   reads, with DuckDB/parquet kept for the heavy jobs. The API surface stays the same; the web client
+   adds polling or server-sent events for live updates.
+
+**Keep a nightly full rebuild** alongside the stream as reconciliation: it corrects drift in the
+incremental counts, re-runs entity resolution (merges can change after the fact: a new IPI can
+reveal two records are one person), and refreshes the decay and percentile tables. Entity
+resolution is the hardest part to do live, so the stream keys on `party_id` and the nightly job
+owns the `party_id → writer_id` mapping.
+
+External enrichment (Spotify or similar) stays asynchronous and cached: rate limits make it a
+background queue, never part of the request path.
+
+## Bonus: ranking on something other than catalog success
+
+**Collaboration network position:** rank writers by *who they write with*, not by what their
+songs have done yet.
+
+Build a graph where writers are nodes and co-writing a song is an edge. Score each writer with a
+weighted PageRank-style centrality: an edge is worth more when the collaborator is published,
+charting, or themselves highly central. This answers "who is the industry already choosing to work
+with?"
+
+Why this one:
+- **It's leading, not lagging.** Writers get pulled into sessions with established writers and
+  producers before their own hits exist. Catalog success tells you who already won; network
+  position tells you who's being let in the room, which is when a signing is cheapest.
+- **It's hard to fake.** Content farms and library accounts co-write among themselves in closed
+  clusters, so they score low. In this data, 11 of the 14 high-volume farm accounts have never
+  written with a published writer.
+- **The data supports it.** It's built from the shares table we already have. Our "validation"
+  factor (share of songs co-written with published writers) is a first-order version: 9,267 of
+  19,786 ranked writers (47%) have at least one published co-writer, and the median ranked writer
+  has 6 distinct co-writers, so the graph is dense enough to rank on. The full version is a
+  recursive SQL query or a few lines of networkx in the build step.
+- **It's actionable for A&R.** The same graph shows *who* connects a writer to the industry, which
+  is a warm introduction and a reference check before outreach.
+
+Its blind spots, and what to pair it with:
+- It under-ranks self-contained artist-writers who don't co-write. Flag writers who are also the
+  recording artist on their own songs and review them separately.
+- It's a deal-flow signal, not a commercial one, so use it to find candidates and catalog/streaming
+  data to size the offer.
+
+Other metrics we considered:
+- **Uncollected publisher share**: the share of a writer's recent recordings with no publisher
+  attached. That's revenue nobody is collecting, which values an admin deal on day one.
+- **Roster fit**: writers whose collaborators sit outside APG's current roster, to fill gaps
+  instead of duplicating strengths.
