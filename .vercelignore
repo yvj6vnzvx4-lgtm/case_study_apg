@@ -3,3 +3,4 @@ backend/tests/
 backend/scripts/
 backend/.venv/
 web/node_modules/
+web/dist/

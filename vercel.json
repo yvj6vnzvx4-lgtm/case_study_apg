@@ -1,13 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd web && npm ci",
-  "buildCommand": "cd web && VITE_API_URL=/api npm run build",
-  "outputDirectory": "web/dist",
-  "functions": {
-    "api/index.py": {
-      "includeFiles": "backend/{app,sql,serving}/**",
-      "maxDuration": 30
+  "services": {
+    "backend": {
+      "root": "backend",
+      "framework": "fastapi",
+      "entrypoint": "serve:app"
+    },
+    "web": {
+      "root": "web",
+      "framework": "vite"
     }
   },
-  "rewrites": [{ "source": "/api/(.*)", "destination": "/api/index" }]
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "backend" } },
+    { "source": "/(.*)", "destination": { "service": "web" } }
+  ]
 }

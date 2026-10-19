@@ -104,8 +104,13 @@ Two-stage ranking so we don't call Spotify ~1.6M times: rank everyone on catalog
 - The hosted API opens an in-memory DuckDB with one view per parquet file and runs the **same SQL
   files** as local. A test exports a snapshot from the fixture and asserts every endpoint returns
   identical JSON from both, so the two can't drift.
-- One Vercel project: static Vite build plus a Python function at `/api`. The backend lives in
-  `backend/` because Vercel turns every `.py` under `api/` into its own function.
+- One Vercel project with two **services**: `backend` (FastAPI, public at `/api/*`) and `web`
+  (Vite static build, everything else). Each builds independently from its own folder with its own
+  dependencies. Vercel passes the original path to the service, so the API is mounted under `/api`
+  (`backend/serve.py`), and local dev uses the same layout (Vite proxies `/api`), so the client has one
+  relative base URL everywhere.
+- No service bindings: the only caller of the API is the browser, through the public route.
+  The backend makes no calls to other services.
 - Trade-off: data refreshes need a rebuild + redeploy. Fine for a weekly catalog snapshot; see the
   realtime bonus answer for what changes when it isn't.
 

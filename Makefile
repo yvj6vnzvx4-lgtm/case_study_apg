@@ -13,8 +13,8 @@ serving:          ## export the compact parquet snapshot the hosted API uses
 enrich:           ## pull Spotify popularity for shortlisted writers' recordings
 	cd backend && uv run python scripts/enrich_spotify.py
 
-api:              ## run API on :8000
-	cd backend && uv run uvicorn app.main:app --reload --port 8000
+api:              ## run API on :8000 (routes under /api)
+	cd backend && uv run uvicorn serve:app --reload --port 8000
 
 web:              ## run web client on :5173
 	cd web && npm run dev

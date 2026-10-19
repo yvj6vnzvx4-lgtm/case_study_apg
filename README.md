@@ -13,10 +13,10 @@ backend/
   sql/queries/    read queries used by the API (raw SQL, named parameters)
   sql/export/     compact serving snapshot for the hosted API
   scripts/        build_db.py, export_serving.py, enrich_spotify.py
+  serve.py        entrypoint: the API mounted under /api (local and Vercel)
   serving/        committed parquet snapshot (~5.5 MB, ranked writers only)
   tests/          pytest; runs the real SQL on a fixture with one fake writer per rule
 web/              React (Vite) client
-api/index.py      Vercel entry point (mounts the backend under /api)
 docs/DECISIONS.md design decisions + bonus answers
 data/             full built DB (gitignored)
 ```
@@ -31,8 +31,8 @@ make setup                    # Python deps (uv) + npm install
 make db                       # build data/writers.duckdb from parquet (~1 min)
 make serving                  # refresh backend/serving/ snapshot
 make enrich                   # optional: Spotify lookups for the shortlist, then rescore
-make api                      # http://localhost:8000/docs
-make web                      # http://localhost:5173
+make api                      # http://localhost:8000/api/docs
+make web                      # http://localhost:5173 (proxies /api to make api)
 make test
 ```
 Without `data/writers.duckdb`, the API falls back to the committed `backend/serving/` snapshot,
@@ -41,14 +41,19 @@ so `make api` + `make web` works straight after cloning.
 ## API
 | Method | Path | Description |
 |---|---|---|
-| GET | `/health` | liveness |
-| GET | `/writers?limit=25&min_works=1&q=` | top N unpublished writers, with per-factor contributions |
-| GET | `/writers/{writer_id}` | full feature row + songs and recordings |
-| GET | `/stats` | eligibility funnel (how many writers each rule removed) |
-| GET | `/meta` | data snapshot date, pool sizes, scoring weights |
-
-Hosted: the same routes are served under `/api` (e.g. `/api/writers`).
+| GET | `/api/health` | liveness |
+| GET | `/api/writers?limit=25&min_works=1&q=` | top N unpublished writers, with per-factor contributions |
+| GET | `/api/writers/{writer_id}` | full feature row + songs and recordings |
+| GET | `/api/stats` | eligibility funnel (how many writers each rule removed) |
+| GET | `/api/meta` | data snapshot date, pool sizes, scoring weights |
 
 ## Hosting
-One Vercel project: the Vite build is served as static files and `api/index.py` runs the FastAPI
-app as a Python function, reading the parquet snapshot with in-memory DuckDB (stateless, read-only).
+One Vercel project with two [services](https://vercel.com/docs/services) (see `vercel.json`):
+
+| Service | Root | Public path | What it is |
+|---|---|---|---|
+| `backend` | `backend/` | `/api/*` | FastAPI (`serve:app`), reads the parquet snapshot with in-memory DuckDB |
+| `web` | `web/` | everything else | Vite static build |
+
+The browser calls `/api` on the same domain, so there are no service-to-service calls and no bindings.
+`vercel dev` runs both together locally.

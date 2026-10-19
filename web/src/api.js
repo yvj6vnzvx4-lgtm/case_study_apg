@@ -1,11 +1,13 @@
-const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+// Same-origin by default: on Vercel /api/* routes to the backend service, and in local
+// dev Vite proxies /api to `make api` (see vite.config.js). VITE_API_URL overrides it.
+const BASE = (import.meta.env.VITE_API_URL ?? "/api").replace(/\/$/, "");
 
 async function get(path) {
   let r;
   try {
     r = await fetch(`${BASE}${path}`);
   } catch {
-    throw new Error(`Can't reach the API at ${BASE}. Start it with "make api".`);
+    throw new Error(`Can't reach the API at ${BASE}. If you're running locally, start it with "make api".`);
   }
   if (!r.ok) throw new Error(`The API returned ${r.status} for ${path}.`);
   return r.json();
