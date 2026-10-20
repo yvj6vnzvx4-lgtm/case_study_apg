@@ -9,7 +9,7 @@ const BEATS = [
   {
     n: "633k",
     line: "Publisher shares that point at nobody.",
-    note: "Warner, Universal, Sony sit on the work with a blank preceding_id. Writer splits are never in the file, so leftover % is not a closed deal — we still will not pitch that hit as an unsigned catalog.",
+    note: "Warner, Universal, Sony sit on the work with a blank preceding_id. Writer splits are never in the file, so leftover % is not a closed deal. We still will not pitch that hit as an unsigned catalog.",
   },
   {
     n: "0",
@@ -18,21 +18,22 @@ const BEATS = [
   },
 ];
 
-export default function MessStory() {
-  const [track, shown] = useScrollSteps(BEATS.length);
+export default function MessStory({ onBack }) {
+  const steps = BEATS.length + 1;
+  const [track, shown] = useScrollSteps(steps);
+  const atCta = shown >= steps;
 
   return (
     <section
       className="pin-track"
       id="mess"
       ref={track}
-      style={{ "--beats": BEATS.length }}
+      style={{ "--beats": steps }}
     >
       <div className="pin-sticky">
-        <p className="chapter-kicker">The metadata</p>
-        <h2>Music credits are a mess. That is the test.</h2>
+        <h2>Metadata</h2>
         <p className="chapter-lede pin-lede">
-          A signing list that trusts every string in the file will put signed writers in the room.
+          Music metadata is messy. The list can surface a legal name and miss the stage name sitting on another record. Publisher pointers often never hit the writer row, and writer splits are blank in this file.
         </p>
         <div className="story-stack" aria-live="polite">
           {BEATS.map((b, i) => (
@@ -47,10 +48,18 @@ export default function MessStory() {
             </div>
           ))}
         </div>
-        <p className={`chapter-note funnel-note${shown >= BEATS.length ? " is-in" : ""}`}>
+        <p className={`chapter-note funnel-note${shown === BEATS.length ? " is-in" : ""}`}>
           We repair the share chain first. Names are not the filter. Disputed works stay
           on the writer and drop out of the score.
         </p>
+        <a
+          href="#roster"
+          className={`method-end-cta${atCta ? " is-in" : ""}`}
+          onClick={onBack}
+        >
+          <span className="method-end-arrow" aria-hidden="true">‹</span>
+          Back to Writer Scout
+        </a>
       </div>
     </section>
   );

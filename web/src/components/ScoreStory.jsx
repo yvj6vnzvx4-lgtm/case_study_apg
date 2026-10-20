@@ -72,8 +72,7 @@ export default function ScoreStory({ factors }) {
               )}
             </div>
             <p className={`chapter-note funnel-note${complete ? " is-in" : ""}`}>
-              Each factor is a percentile inside the shortlist, then weighted.
-              Stream counts are not in the Spotify API we can use.
+              Each factor is a percentile inside the scouting tool, then weighted. Stream counts are not included in the Spotify API.
             </p>
           </>
         ) : (

@@ -8,7 +8,7 @@ function asOf(meta) {
   });
 }
 
-export default function CatalogFunnel({ meta }) {
+export default function CatalogFunnel({ meta, hint }) {
   const steps = meta
     ? [
         { n: fmt(meta.total_writers), label: "writers in the data" },
@@ -34,8 +34,13 @@ export default function CatalogFunnel({ meta }) {
       style={{ "--beats": steps.length || 3 }}
     >
       <div className="pin-sticky">
-        <p className="chapter-kicker">The catalog</p>
-        <h2>Every writer in the snapshot. Almost none belong in the meeting.</h2>
+        <div className="catalog-heading">
+          <p className={`method-scroll-hint${hint ? " is-on" : ""}`} role="status">
+            Scroll to walk through how we ranked
+            <span className="method-scroll-cue" aria-hidden="true" />
+          </p>
+          <h2>Catalog</h2>
+        </div>
         {meta ? (
           <>
             <div className="story-stack" aria-live="polite">

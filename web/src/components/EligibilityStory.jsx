@@ -5,15 +5,16 @@ export default function EligibilityStory({ stats, meta }) {
   const byStatus = Object.fromEntries((stats ?? []).map((r) => [r.status, r.writers]));
   const total = (stats ?? []).reduce((s, r) => s + r.writers, 0);
   let remaining = total;
-  const steps = FILTER_ORDER.map((status) => {
+  const steps = FILTER_ORDER.flatMap((status) => {
     const removed = byStatus[status] ?? 0;
     remaining -= removed;
-    return {
+    if (status === "high_volume_catalog" && removed === 0) return [];
+    return [{
       status,
       removed,
       remaining,
       label: STATUS_LABELS[status] ?? status,
-    };
+    }];
   });
   const [track, shown] = useScrollSteps(steps.length || 1);
   const last = shown > 0 ? steps[shown - 1] : null;
@@ -26,11 +27,7 @@ export default function EligibilityStory({ stats, meta }) {
       style={{ "--beats": Math.max(steps.length, 3) }}
     >
       <div className="pin-sticky">
-        <p className="chapter-kicker">Eligibility</p>
-        <h2>Most of the list is not a signing conversation.</h2>
-        <p className="chapter-lede pin-lede">
-          Linked deals come off first, then writers who only appear on songs that already have a publisher sitting on them — the file never points at their share. Then companies, thin evidence, legacy names, quiet years, and content farms.
-        </p>
+        <h2>Eligibility</h2>
         {steps.length > 0 ? (
           <>
             <div className="story-stack" aria-live="polite">
