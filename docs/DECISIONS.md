@@ -42,7 +42,10 @@
 - A writer is **unpublished** only if *none* of their works has a publisher link (strict), after
   two repairs the dump needs: split `preceding_id` on `|` (233k rows), and if a work has an
   OriginalPublisher with a blank `preceding_id` and exactly one unlinked writer, attach it.
-  Signing someone who already has a publisher on part of their catalog is a different conversation.
+  If a publisher row has a **real percentage** and still points at nobody on a multi-writer
+  work, attach it to every unlinked writer on that song (the dump lost the pointer; the
+  unallocated slice is the deal). Signing someone who already has a publisher on part of
+  their catalog is a different conversation.
 - Limitation: this is US streaming shares only. "Unpublished in this data" ≠ unsigned. A human
   still confirms deal status.
 - **Disputed works** (`in_dispute`, ~12.7k): listed on the writer with a flag, excluded from
@@ -53,7 +56,7 @@ Applied in order; each excluded writer keeps a reason, so nothing disappears sil
 
 | Rule | Why |
 |---|---|
-| `has_publisher` | not a signing candidate. Includes deals the file stored as `id|id` or a blank preceding_id |
+| `has_publisher` | not a signing candidate. Includes deals stored as `id|id`, a blank preceding_id on a sole writer, or an unallocated publisher percentage on a multi-writer work |
 | `chain_ambiguous` | every work already has an OriginalPublisher on the *song*, but none of those rows point at this writer. The dump cannot tell unsigned cowriter from a missing pointer (Botlok / Elvin). Not a name filter |
 | `not_a_person` | names like PUBLIC DOMAIN, TRADITIONAL, …PUBLISHING, …MUSIC, LLC |
 | `insufficient_data` (< 3 commercial recordings) | karaoke / tribute / piano-channel credits do not count |

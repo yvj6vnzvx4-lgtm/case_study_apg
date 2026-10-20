@@ -7,4 +7,4 @@ JOIN works w USING (work_id)
 LEFT JOIN releases r USING (work_id)
 LEFT JOIN spotify_tracks st USING (isrc)
 WHERE ws.writer_id = $writer_id
-ORDER BY st.spotify_id IS NOT NULL DESC, r.recording_year DESC NULLS LAST, w.title, w.work_id, r.isrc, ws.party_role;
+ORDER BY st.spotify_id IS NOT NULL DESC, r.recording_year DESC NULLS LAST, w.title, w.work_id, r.isrc, r.artist_name, ws.party_role;

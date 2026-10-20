@@ -91,7 +91,10 @@ GROUP BY writer_id;
 -- The dump stores multiple targets in one field ("id|id"). ~233k publisher rows
 -- do that; an equality join misses them. ~633k publisher rows point at nobody —
 -- if that work has exactly one unlinked writer, that is the missing chain, not
--- an unsigned catalog.
+-- an unsigned catalog. If a publisher row has a real percentage and points at
+-- nobody on a *multi*-writer work, the dump lost the pointer. Treat every
+-- unlinked writer on that work as published — better to miss an unsigned
+-- cowriter on a messy hit than pitch someone whose share is the unallocated slice.
 CREATE OR REPLACE TABLE writer_shares AS
 WITH publisher_links AS (
     SELECT DISTINCT trim(x) AS preceding_id
@@ -127,9 +130,19 @@ sole_unlinked AS (
     WHERE NOT linked
     GROUP BY work_id
     HAVING count(*) = 1
+),
+-- Publisher collected a real share but preceding_id is blank. Not 0% placeholder rows.
+residual_works AS (
+    SELECT DISTINCT work_id
+    FROM shares
+    WHERE party_role IN ('OriginalPublisher', 'SubstitutedPublisher')
+      AND (preceding_id IS NULL OR preceding_id = '')
+      AND coalesce(share_percentage, 0) > 0
 )
 SELECT
     share_id, work_id, party_id, writer_id, party_role, share_percentage,
-    linked OR (NOT linked AND work_id IN (SELECT work_id FROM sole_unlinked)
-                     AND work_id IN (SELECT work_id FROM orphan_works)) AS is_published
+    linked
+    OR (NOT linked AND work_id IN (SELECT work_id FROM sole_unlinked)
+                     AND work_id IN (SELECT work_id FROM orphan_works))
+    OR (NOT linked AND work_id IN (SELECT work_id FROM residual_works)) AS is_published
 FROM linked;

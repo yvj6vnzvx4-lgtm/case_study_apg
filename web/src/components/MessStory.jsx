@@ -9,7 +9,7 @@ const BEATS = [
   {
     n: "633k",
     line: "Publisher shares that point at nobody.",
-    note: "Warner, Universal, Major Bob sit on the work with a blank preceding_id. The writer looks unpublished. The work is not.",
+    note: "Warner, Universal, Sony sit on the work with a blank preceding_id. A leftover percentage on a multi-writer hit is a deal, not an unsigned catalog.",
   },
   {
     n: "0",

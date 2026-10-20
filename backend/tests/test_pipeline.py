@@ -21,8 +21,8 @@ def test_junk_release_dates_become_null(con):
 
 
 def test_publisher_link_marks_share_published(con):
-    rows = dict(con.execute("SELECT share_id, is_published FROM writer_shares WHERE share_id IN ('S1','S2','S3','S5','SPIPE','SORPH')").fetchall())
-    assert rows == {"S1": False, "S2": False, "S3": True, "S5": True, "SPIPE": True, "SORPH": True}
+    rows = dict(con.execute("SELECT share_id, is_published FROM writer_shares WHERE share_id IN ('S1','S2','S3','S5','SPIPE','SORPH','SELI','SOTH')").fetchall())
+    assert rows == {"S1": False, "S2": False, "S3": True, "S5": True, "SPIPE": True, "SORPH": True, "SELI": True, "SOTH": True}
 
 
 def test_same_name_merges_onto_ipi_holder(con):
@@ -61,6 +61,8 @@ def test_features(con):
     ("BOB SIGNED", "has_publisher"),
     ("PIPE WRITER", "has_publisher"),
     ("ORPHAN WRITER", "has_publisher"),
+    ("ELI HIT", "has_publisher"),
+    ("OTHER HIT", "has_publisher"),
     ("DANA GAP", "chain_ambiguous"),
     ("PUBLIC DOMAIN", "not_a_person"),
     ("OLD TIMER", "legacy_catalog"),

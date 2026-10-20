@@ -31,7 +31,7 @@ def test_writer_detail_404(client):
 def test_stats_funnel(client):
     stats = {r["status"]: r["writers"] for r in client.get("/stats").json()}
     assert stats["eligible"] == 2
-    assert stats["has_publisher"] == 3
+    assert stats["has_publisher"] == 5
     assert stats["chain_ambiguous"] == 1
 
 

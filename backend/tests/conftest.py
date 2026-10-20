@@ -8,6 +8,8 @@ Each fake writer exists to exercise one rule:
   BOB SIGNED   -> publisher share points at his share_id           -> has_publisher
   PIPE WRITER  -> publisher preceding_id is 'id|id' (real dump)    -> has_publisher
   ORPHAN WRITER -> sole writer on a work with an unlinked publisher -> has_publisher
+  ELI HIT + OTHER HIT share a work whose publisher has a real % and blank preceding_id
+                    -> both has_publisher (unallocated slice, not unsigned cowriters)
   PUBLIC DOMAIN                                        -> not_a_person
   OLD TIMER    -> 3 recordings before 2010             -> legacy_catalog
   QUIET PERSON -> last recording 2017                  -> inactive
@@ -38,14 +40,16 @@ CREATE TABLE parties AS SELECT * FROM (VALUES
   (11::BIGINT, 'IPIP', NULL, 'PIPE WRITER',    NULL, NULL),
   (12::BIGINT, 'IPIO', NULL, 'ORPHAN WRITER',  NULL, NULL),
   (13::BIGINT, NULL,  NULL, 'Smith, Alice',   'ALICE', 'SMITH'),
-  (14::BIGINT, 'IPIG', NULL, 'DANA GAP',       'DANA',  'GAP')
+  (14::BIGINT, 'IPIG', NULL, 'DANA GAP',       'DANA',  'GAP'),
+  (15::BIGINT, 'IPIE', NULL, 'ELI HIT',        'ELI',   'HIT'),
+  (16::BIGINT, 'IPIT', NULL, 'OTHER HIT',      'OTHER', 'HIT')
 ) t(id, ipi_name_number, cisac_society_id, full_name, first_name, last_name);
 
 CREATE TABLE works AS
 SELECT id, NULL::VARCHAR AS iswc, 'SONG ' || id AS title, NULL::VARCHAR AS language_and_script_code,
        NULL::VARCHAR AS duration, false AS in_dispute, false AS is_arrangement_of_traditional_work,
        NULL::VARCHAR AS reversion_date, NULL::VARCHAR AS is_composite_work
-FROM (SELECT unnest(['W1','W2','W3','W4','W5','W6','W7','W8','W9','WP','WO','WD']) AS id
+FROM (SELECT unnest(['W1','W2','W3','W4','W5','W6','W7','W8','W9','WP','WO','WD','WH']) AS id
       UNION ALL SELECT 'F' || i FROM range(41) r(i));
 UPDATE works SET in_dispute = true WHERE id = 'WD';
 
@@ -74,7 +78,10 @@ CREATE TABLE releases AS SELECT * FROM (VALUES
   ('W9', 'BADISRC',      'ARTIST F', DATE '2023-05-05'),    -- malformed ISRC -> falls back to release_date
   ('WP', 'USAAA2400030', 'ARTIST PIPE', NULL),
   ('WO', 'USAAA2400031', 'ARTIST ORPH', NULL),
-  ('WD', 'USAAA2400032', 'ARTIST DISP', NULL)
+  ('WD', 'USAAA2400032', 'ARTIST DISP', NULL),
+  ('WH', 'USAAA2400040', 'ARTIST HIT', NULL),
+  ('WH', 'USAAA2400041', 'ARTIST HIT2', NULL),
+  ('WH', 'USAAA2400042', 'ARTIST HIT3', NULL)
 ) t(work_id, isrc, artist_name, release_date)
 UNION ALL
 SELECT 'F' || i, 'USFRM24' || lpad(i::VARCHAR, 5, '0'), 'FARM ARTIST ' || i, NULL FROM range(41) r(i);
@@ -97,7 +104,10 @@ CREATE TABLE shares AS SELECT * FROM (VALUES
   ('SORPH', 'WO', 12::BIGINT, 'Composer', NULL, NULL),
   ('SOP',   'WO', 3::BIGINT,  'OriginalPublisher', 100, NULL),
   ('SDISP', 'WD', 13::BIGINT, 'Composer',          NULL, NULL),
-  ('SGAP',  'W2', 14::BIGINT, 'Composer',          NULL, NULL)
+  ('SGAP',  'W2', 14::BIGINT, 'Composer',          NULL, NULL),
+  ('SELI',  'WH', 15::BIGINT, 'Composer',          NULL, NULL),
+  ('SOTH',  'WH', 16::BIGINT, 'Composer',          NULL, NULL),
+  ('SPCT',  'WH', 3::BIGINT,  'OriginalPublisher', 25,   NULL)
 ) t(id, work_id, party_id, party_role, share_percentage, preceding_id)
 UNION ALL
 SELECT 'F' || i, 'F' || i, 7::BIGINT, 'Composer', NULL, NULL FROM range(41) r(i);
