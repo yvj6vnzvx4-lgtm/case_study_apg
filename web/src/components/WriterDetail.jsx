@@ -14,10 +14,12 @@ function byArtist(recs) {
       recording_year: r.recording_year,
       count: 0,
       isrc: r.isrc,
+      spotify_id: r.spotify_id,
       spotify_url: r.spotify_url,
     };
     e.count += 1;
     e.recording_year = Math.max(e.recording_year ?? 0, r.recording_year ?? 0) || null;
+    if (!e.spotify_id && r.spotify_id) e.spotify_id = r.spotify_id;
     if (!e.spotify_url && r.spotify_url) e.spotify_url = r.spotify_url;
     m.set(k, e);
   }
@@ -54,6 +56,10 @@ export default function WriterDetail({ writerId, factors, meta, onClose }) {
   }, [onClose]);
 
   const works = useMemo(() => (data ? groupWorks(data.works) : []), [data]);
+  const play = useMemo(
+    () => works.flatMap((wk) => wk.recordings).find((r) => r.spotify_id),
+    [works],
+  );
   const y = meta?.as_of_year;
   const shown = showAll ? works : works.slice(0, WORKS_PREVIEW);
 
@@ -74,6 +80,16 @@ export default function WriterDetail({ writerId, factors, meta, onClose }) {
                   <span className="num">{w.score.toFixed(1)}</span>
                 </p>
                 <SplitBar writer={w} factors={factors} />
+                {play?.spotify_id && (
+                  <iframe
+                    className="spotify-embed"
+                    title={`Play ${displayName(w.display_name)} on Spotify`}
+                    src={`https://open.spotify.com/embed/track/${play.spotify_id}?theme=0`}
+                    height="80"
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                    loading="lazy"
+                  />
+                )}
               </header>
 
               <ul className="why">

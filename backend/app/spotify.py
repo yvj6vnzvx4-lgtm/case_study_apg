@@ -14,6 +14,12 @@ TOKEN_URL = "https://accounts.spotify.com/api/token"
 API = "https://api.spotify.com/v1"
 
 
+class QuotaExceeded(RuntimeError):
+    def __init__(self, retry_after: int):
+        self.retry_after = retry_after
+        super().__init__(f"Spotify quota exceeded; retry after {retry_after}s")
+
+
 class SpotifyClient:
     def __init__(self, client_id: str = config.SPOTIFY_CLIENT_ID, client_secret: str = config.SPOTIFY_CLIENT_SECRET):
         self._auth = (client_id, client_secret)
@@ -31,15 +37,25 @@ class SpotifyClient:
         return {"Authorization": f"Bearer {self._token}"}
 
     def _get(self, path: str, params: dict | None = None) -> httpx.Response:
-        for _ in range(2):
-            r = self._http.get(f"{API}{path}", params=params, headers=self._headers())
-            if r.status_code == 429:
-                time.sleep(int(r.headers.get("Retry-After", "2")))
+        last = None
+        for _ in range(8):
+            last = self._http.get(f"{API}{path}", params=params, headers=self._headers())
+            if last.status_code == 429:
+                wait = int(last.headers.get("Retry-After", "2") or 2)
+                reason = ""
+                try:
+                    reason = (last.json().get("error") or {}).get("reason") or ""
+                except Exception:
+                    reason = ""
+                # Dev Mode daily quota returns Retry-After of hours. Do not hammer it.
+                if reason == "QUOTA_EXCEEDED" or wait > 120:
+                    raise QuotaExceeded(wait)
+                time.sleep(min(max(wait, 1), 30))
                 continue
-            r.raise_for_status()
-            return r
-        r.raise_for_status()
-        return r
+            last.raise_for_status()
+            return last
+        last.raise_for_status()
+        return last
 
     def track_by_isrc(self, isrc: str) -> dict | None:
         """Return the top Spotify match for an ISRC, or None."""
@@ -55,8 +71,11 @@ class SpotifyClient:
             if not aid:
                 continue
             if aid not in self._artist_genres:
-                body = self._get(f"/artists/{aid}").json()
-                self._artist_genres[aid] = body.get("genres") or []
+                try:
+                    body = self._get(f"/artists/{aid}").json()
+                    self._artist_genres[aid] = body.get("genres") or []
+                except httpx.HTTPStatusError:
+                    self._artist_genres[aid] = []
             for g in self._artist_genres[aid]:
                 key = g.lower()
                 if key not in seen:

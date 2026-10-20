@@ -345,6 +345,10 @@ button, input, select { font: inherit; color: inherit; }
   line-height: 1; letter-spacing: -0.03em;
 }
 .detail-head .split { margin-top: 12px; height: 8px; }
+.spotify-embed {
+  display: block; width: 100%; margin-top: 16px; border: 0; border-radius: 12px;
+  min-height: 80px; background: var(--paper-2, #111);
+}
 .detail-section { margin-top: 28px; }
 .detail-section h3 {
   font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
