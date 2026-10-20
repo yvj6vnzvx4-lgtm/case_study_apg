@@ -1,14 +1,19 @@
 """Builds a tiny fixture dataset as parquet and runs the real SQL pipeline on it.
 
 Each fake writer exists to exercise one rule:
-  ALICE SMITH  (party 1, IPI) + ALICE SMITH (party 5, no IPI) -> merged; eligible, strong
+  ALICE SMITH  (party 1, IPI) + Alice Smith (5) + Smith, Alice (13) -> merged
+  WD is in_dispute on Alice -> visible, not scored
+  DANA GAP only on already-published W2, unlinked -> chain_ambiguous
   CAROL JONES  -> eligible, weaker (one song, one artist) but fast-growing
-  BOB SIGNED   -> has a publisher                     -> has_publisher
+  BOB SIGNED   -> publisher share points at his share_id           -> has_publisher
+  PIPE WRITER  -> publisher preceding_id is 'id|id' (real dump)    -> has_publisher
+  ORPHAN WRITER -> sole writer on a work with an unlinked publisher -> has_publisher
   PUBLIC DOMAIN                                        -> not_a_person
   OLD TIMER    -> 3 recordings before 2010             -> legacy_catalog
   QUIET PERSON -> last recording 2017                  -> inactive
   TINA THIN  -> 1 recording                          -> insufficient_data
   DAN FARMER   -> 41 songs in one year                 -> high_volume_catalog
+  PARTY TYME KARAOKE on Alice's song -> must not inflate reach
 """
 import duckdb
 import pytest
@@ -29,18 +34,25 @@ CREATE TABLE parties AS SELECT * FROM (VALUES
   (7::BIGINT, 'IPI7', NULL, 'DAN FARMER',     NULL,    NULL),
   (8::BIGINT, 'IPI8', NULL, 'QUIET PERSON',   NULL,    NULL),
   (9::BIGINT, 'IPI9', NULL, 'TINA THIN',    NULL,    NULL),
-  (10::BIGINT, NULL,  NULL, 'CAROL 260858648 JONES', NULL, NULL)
+  (10::BIGINT, NULL,  NULL, 'CAROL 260858648 JONES', NULL, NULL),
+  (11::BIGINT, 'IPIP', NULL, 'PIPE WRITER',    NULL, NULL),
+  (12::BIGINT, 'IPIO', NULL, 'ORPHAN WRITER',  NULL, NULL),
+  (13::BIGINT, NULL,  NULL, 'Smith, Alice',   'ALICE', 'SMITH'),
+  (14::BIGINT, 'IPIG', NULL, 'DANA GAP',       'DANA',  'GAP')
 ) t(id, ipi_name_number, cisac_society_id, full_name, first_name, last_name);
 
 CREATE TABLE works AS
 SELECT id, NULL::VARCHAR AS iswc, 'SONG ' || id AS title, NULL::VARCHAR AS language_and_script_code,
        NULL::VARCHAR AS duration, false AS in_dispute, false AS is_arrangement_of_traditional_work,
        NULL::VARCHAR AS reversion_date, NULL::VARCHAR AS is_composite_work
-FROM (SELECT unnest(['W1','W2','W3','W4','W5','W6','W7','W8','W9']) AS id
+FROM (SELECT unnest(['W1','W2','W3','W4','W5','W6','W7','W8','W9','WP','WO','WD']) AS id
       UNION ALL SELECT 'F' || i FROM range(41) r(i));
+UPDATE works SET in_dispute = true WHERE id = 'WD';
 
 CREATE TABLE releases AS SELECT * FROM (VALUES
   ('W1', 'USAAA2400001', 'ARTIST A', DATE '2024-11-01'),   -- latest date -> as_of_year 2024
+  ('W1', 'USAAA2400001', '"ARTIST A" feat. OTHER', DATE '2024-11-01'), -- same ISRC, messy credit
+  ('W1', 'USKRA2400099', 'PARTY TYME KARAOKE', DATE '2024-06-01'), -- cover channel, not reach
   ('W1', 'USAAA2300002', 'ARTIST B', DATE '0001-01-01'),   -- junk date -> NULL
   ('W1', 'USAAA2400003', 'ARTIST C', NULL),
   ('W2', 'USAAA2200004', 'ARTIST D', NULL),
@@ -59,7 +71,10 @@ CREATE TABLE releases AS SELECT * FROM (VALUES
   ('W8', 'USAAA2400018', 'ARTIST T', NULL),
   ('W9', 'USAAA2400019', 'ARTIST F', NULL),
   ('W9', 'USAAA2400020', 'ARTIST F', NULL),
-  ('W9', 'BADISRC',      'ARTIST F', DATE '2023-05-05')    -- malformed ISRC -> falls back to release_date
+  ('W9', 'BADISRC',      'ARTIST F', DATE '2023-05-05'),    -- malformed ISRC -> falls back to release_date
+  ('WP', 'USAAA2400030', 'ARTIST PIPE', NULL),
+  ('WO', 'USAAA2400031', 'ARTIST ORPH', NULL),
+  ('WD', 'USAAA2400032', 'ARTIST DISP', NULL)
 ) t(work_id, isrc, artist_name, release_date)
 UNION ALL
 SELECT 'F' || i, 'USFRM24' || lpad(i::VARCHAR, 5, '0'), 'FARM ARTIST ' || i, NULL FROM range(41) r(i);
@@ -76,7 +91,13 @@ CREATE TABLE shares AS SELECT * FROM (VALUES
   ('S9',  'W6', 5::BIGINT,  'Lyricist',          NULL, NULL),
   ('S10', 'W7', 8::BIGINT,  'Composer',          NULL, NULL),
   ('S11', 'W8', 9::BIGINT,  'Composer',          NULL, NULL),
-  ('S12', 'W9', 10::BIGINT, 'Composer',          NULL, NULL)
+  ('S12', 'W9', 10::BIGINT, 'Composer',          NULL, NULL),
+  ('SPIPE', 'WP', 11::BIGINT, 'Composer', NULL, NULL),
+  ('SPUB',  'WP', 3::BIGINT,  'OriginalPublisher', 100, 'SPIPE|SX'),
+  ('SORPH', 'WO', 12::BIGINT, 'Composer', NULL, NULL),
+  ('SOP',   'WO', 3::BIGINT,  'OriginalPublisher', 100, NULL),
+  ('SDISP', 'WD', 13::BIGINT, 'Composer',          NULL, NULL),
+  ('SGAP',  'W2', 14::BIGINT, 'Composer',          NULL, NULL)
 ) t(id, work_id, party_id, party_role, share_percentage, preceding_id)
 UNION ALL
 SELECT 'F' || i, 'F' || i, 7::BIGINT, 'Composer', NULL, NULL FROM range(41) r(i);

@@ -21,14 +21,25 @@ def test_junk_release_dates_become_null(con):
 
 
 def test_publisher_link_marks_share_published(con):
-    rows = dict(con.execute("SELECT share_id, is_published FROM writer_shares WHERE share_id IN ('S1','S2','S3','S5')").fetchall())
-    assert rows == {"S1": False, "S2": False, "S3": True, "S5": True}
+    rows = dict(con.execute("SELECT share_id, is_published FROM writer_shares WHERE share_id IN ('S1','S2','S3','S5','SPIPE','SORPH')").fetchall())
+    assert rows == {"S1": False, "S2": False, "S3": True, "S5": True, "SPIPE": True, "SORPH": True}
 
 
 def test_same_name_merges_onto_ipi_holder(con):
     alice = writer(con, "ALICE SMITH")
-    assert sorted(alice["party_ids"]) == [1, 5]
-    assert alice["works"] == 3                # W1, W2 (party 1) + W6 (party 5)
+    assert sorted(alice["party_ids"]) == [1, 5, 13]
+    assert alice["works"] == 3                # W1, W2, W6 — disputed WD is not a cut
+
+
+def test_disputed_work_is_not_scored(con):
+    alice = writer(con, "ALICE SMITH")
+    assert alice["works"] == 3
+    assert alice["recordings"] == 5
+    listed = {r[0] for r in con.execute(
+        "SELECT DISTINCT work_id FROM writer_shares WHERE writer_id = $i",
+        {"i": alice["writer_id"]},
+    ).fetchall()}
+    assert "WD" in listed
 
 
 def test_ids_stripped_from_names(con):
@@ -38,7 +49,7 @@ def test_ids_stripped_from_names(con):
 def test_features(con):
     a = writer(con, "ALICE SMITH")
     assert a["recordings"] == 5
-    assert a["distinct_artists"] == 5
+    assert a["distinct_artists"] == 5          # duplicate ISRC credit lines do not inflate reach
     assert a["recent_recordings"] == 4        # 2023-2024
     assert a["prior_recordings"] == 1         # 2021-2022
     assert a["works_with_published_cowriter"] == 1   # W2 with Bob
@@ -48,6 +59,9 @@ def test_features(con):
     ("ALICE SMITH", None),
     ("CAROL JONES", None),
     ("BOB SIGNED", "has_publisher"),
+    ("PIPE WRITER", "has_publisher"),
+    ("ORPHAN WRITER", "has_publisher"),
+    ("DANA GAP", "chain_ambiguous"),
     ("PUBLIC DOMAIN", "not_a_person"),
     ("OLD TIMER", "legacy_catalog"),
     ("QUIET PERSON", "inactive"),
@@ -63,19 +77,22 @@ def test_excluded_writers_have_no_score(con):
 
 
 def test_catalog_only_score(con):
-    # Alice tops reach, momentum, validation, depth; Carol only tops growth.
-    # Without Spotify data the popularity slice (0.25) is removed and weights renormalized.
+    # Alice tops reach, momentum, rooms, depth; Carol only tops growth.
+    # Without Spotify lookups the DSP slice (0.18) is removed and weights renormalized / 0.82.
     a, c = writer(con, "ALICE SMITH"), writer(con, "CAROL JONES")
-    assert a["p_popularity"] is None
-    assert a["score"] == pytest.approx(100 * 0.65 / 0.75, abs=0.1)
-    assert c["score"] == pytest.approx(100 * 0.10 / 0.75, abs=0.1)
+    assert a["p_dsp"] is None
+    assert a["score"] == pytest.approx(100 * 0.74 / 0.82, abs=0.1)
+    assert c["score"] == pytest.approx(100 * 0.08 / 0.82, abs=0.1)
 
 
-def test_spotify_popularity_enters_score_after_rescore(con):
-    con.execute("""INSERT INTO spotify_tracks (isrc, spotify_id, popularity) VALUES
-                   ('USAAA2400001', 'a', 10), ('USAAA2400019', 'c', 90)""")
+def test_dsp_presence_enters_score_after_rescore(con):
+    con.execute("""INSERT INTO spotify_tracks (isrc, spotify_id, genres, spotify_url) VALUES
+                   ('USAAA2400001', 'a', 'pop|dance pop', 'https://open.spotify.com/track/a'),
+                   ('USAAA2400019', NULL, NULL, NULL)""")
     pipeline.rescore(con)
     a, c = writer(con, "ALICE SMITH"), writer(con, "CAROL JONES")
-    assert (a["p_popularity"], c["p_popularity"]) == (0.0, 1.0)
-    assert a["score"] == pytest.approx(65.0, abs=0.1)
-    assert c["score"] == pytest.approx(35.0, abs=0.1)
+    assert (a["matched_tracks"], c["matched_tracks"]) == (1, 0)
+    assert (a["p_dsp"], c["p_dsp"]) == (1.0, 0.0)
+    assert a["score"] == pytest.approx(92.0, abs=0.1)
+    assert c["score"] == pytest.approx(8.0, abs=0.1)
+    assert "pop" in (a["spotify_genres"] or "")

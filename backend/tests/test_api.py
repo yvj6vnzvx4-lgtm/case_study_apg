@@ -20,7 +20,8 @@ def test_writer_detail(client):
     top = client.get("/writers").json()[0]
     body = client.get(f"/writers/{top['writer_id']}").json()
     assert body["writer"]["display_name"].upper() == "ALICE SMITH"
-    assert {w["work_id"] for w in body["works"]} == {"W1", "W2", "W6"}
+    assert {w["work_id"] for w in body["works"]} == {"W1", "W2", "W6", "WD"}
+    assert any(w["work_id"] == "WD" and w["in_dispute"] for w in body["works"])
 
 
 def test_writer_detail_404(client):
@@ -30,7 +31,8 @@ def test_writer_detail_404(client):
 def test_stats_funnel(client):
     stats = {r["status"]: r["writers"] for r in client.get("/stats").json()}
     assert stats["eligible"] == 2
-    assert stats["has_publisher"] == 1
+    assert stats["has_publisher"] == 3
+    assert stats["chain_ambiguous"] == 1
 
 
 def test_search_keeps_global_rank(client):
@@ -40,7 +42,7 @@ def test_search_keeps_global_rank(client):
 
 def test_contributions_sum_to_score(client):
     for r in client.get("/writers").json():
-        parts = sum(r[k] for k in ("c_reach", "c_momentum", "c_validation", "c_growth", "c_depth"))
+        parts = sum(r[k] or 0 for k in ("c_reach", "c_momentum", "c_validation", "c_growth", "c_depth", "c_dsp"))
         assert parts == __import__("pytest").approx(r["score"], abs=0.1)
 
 
@@ -48,5 +50,5 @@ def test_meta_weights_without_spotify(client):
     m = client.get("/meta").json()
     assert m["eligible_writers"] == 2 and m["has_spotify"] is False
     weights = {w["component"]: w["weight"] for w in m["weights"]}
-    assert "popularity" not in weights
+    assert "dsp" not in weights and "popularity" not in weights
     assert sum(weights.values()) == __import__("pytest").approx(1.0)

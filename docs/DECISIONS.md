@@ -4,65 +4,81 @@
 - **Parquet over the provided DuckDB file.** Same rows; the .duckdb is 4.2 GB uncompacted vs 127 MB
   parquet. `make db` rebuilds a ~350 MB DuckDB with only the columns we use.
 - **Dropped constant/empty columns:** territory_code (always US), use_type (always Stream),
-  validity_end_date (always NULL).
+  validity_end_date (always NULL), cisac_society_id (always NULL). `share_percentage` is
+  unused on writer roles (always NULL); kept on the share row for publisher-side work.
+- **Loaded and used:** `first_name` / `last_name` (identity fingerprint + display),
+  `in_dispute` (exclude from score, still show on the writer).
 - **Snapshot date.** Latest release is 2025-02-14, so "recent" is anchored on the data
   (`build_meta.as_of_year` = 2024), not on today's date. Otherwise every writer looks inactive.
 - **Recording year from the ISRC.** ISRCs embed a registration year (CC-XXX-**YY**-NNNNN). It exists on
   every recording, while release_date is missing on ~52% and is often a later reissue/compilation date
   (33% of dated rows are 2+ years after the ISRC year). Falls back to release_date if the ISRC is malformed.
 - **Cleaning:** sentinel dates (0001-01-01, 9999-12-31) → NULL; IDs embedded in names
-  ("LARRY 260858648 FRICKE") stripped.
+  ("LARRY 260858648 FRICKE") stripped. Artist credits are normalized (punctuation / `feat.`)
+  and **one artist key per ISRC**; karaoke / "various artists" / Kidz Bop strings are dropped
+  from reach so the same commercial cut is not counted as five different artists.
+- **Reach is a recording-activity proxy, not fame.** Hits without a publisher chain in this
+  US-stream snapshot still rank (Ryan Tedder fragments, Latin session writers). "Unpublished
+  here" is not the same as unsigned.
 
 ## Writer identity (entity resolution)
 - Same person appears under several party_ids. **IPI alone is not a safe key**: one IPI in the data is
   shared by 24 unrelated names (a default/junk value).
-- Rule: merge on normalized name; use IPI to *separate* different people with the same name.
-  A no-IPI party attaches to the IPI holder of the same name if there is exactly one.
-  ~59K writers are merged from ~120K party records.
-- Known trade-off: two different no-IPI people with a common name can be merged. The detail endpoint
-  returns `party_ids` so a scout can check.
+- Rule: merge on a **sorted token fingerprint** of `full_name` + `first_name` + `last_name`
+  (punctuation/hyphens dropped, Jr/Sr/II stripped). IPI *separates* different people who
+  share a fingerprint. A no-IPI party attaches to the IPI holder of that fingerprint if
+  there is exactly one. This joins inverted names (`Smith, Alice`) and hyphen vs space
+  (`ROUBERT-RODRIGUEZ`) without a nickname list — Billy/William stay two people.
+- Do **not** merge on last+first alone: Elvin’s two registry rows split the compound
+  surname differently (`RODRIGUEZ` vs `ROUBERT-RODRIGUEZ`).
+- Missing first+last is common on companies and on 58 real writer names; it is not
+  `not_a_person` by itself. Display prefers `first_name` + `last_name` from the IPI row.
+- Known trade-off: two different no-IPI people with the same token set can be merged.
+  The detail endpoint returns `party_ids` so a scout can check.
 
 ## Definition of "unpublished"
 - Shares chain through `preceding_id`: writer → OriginalPublisher → RightsAdministrator.
 - A writer share is published if a publisher share points back to it.
-- A writer is **unpublished** only if *none* of their works has a publisher link (strict). Signing
-  someone who already has a publisher on part of their catalog is a different conversation.
-- Limitation: this is US streaming shares only. "Unpublished in this data" ≠ unsigned. The top of our
-  list includes known hitmakers (e.g., Lil Nas X's and Post Malone's co-writers) whose deals simply
-  aren't in this snapshot, so a human check is still needed.
+- A writer is **unpublished** only if *none* of their works has a publisher link (strict), after
+  two repairs the dump needs: split `preceding_id` on `|` (233k rows), and if a work has an
+  OriginalPublisher with a blank `preceding_id` and exactly one unlinked writer, attach it.
+  Signing someone who already has a publisher on part of their catalog is a different conversation.
+- Limitation: this is US streaming shares only. "Unpublished in this data" ≠ unsigned. A human
+  still confirms deal status.
+- **Disputed works** (`in_dispute`, ~12.7k): listed on the writer with a flag, excluded from
+  reach / eligibility. A fight over the registration is not a cut.
 
 ## Eligibility funnel (`GET /stats`)
 Applied in order; each excluded writer keeps a reason, so nothing disappears silently.
 
 | Rule | Why |
 |---|---|
-| `has_publisher` | not a signing candidate |
+| `has_publisher` | not a signing candidate. Includes deals the file stored as `id|id` or a blank preceding_id |
+| `chain_ambiguous` | every work already has an OriginalPublisher on the *song*, but none of those rows point at this writer. The dump cannot tell unsigned cowriter from a missing pointer (Botlok / Elvin). Not a name filter |
 | `not_a_person` | names like PUBLIC DOMAIN, TRADITIONAL, …PUBLISHING, …MUSIC, LLC |
-| `insufficient_data` (< 3 recordings) | not enough evidence to rank |
+| `insufficient_data` (< 3 commercial recordings) | karaoke / tribute / piano-channel credits do not count |
 | `legacy_catalog` (career start < 2010, or 3+ pre-2010 recordings) | catches Mozart / standards / established careers. Career start = 10th-percentile recording year, so one stray old ISRC or same-name merge doesn't trigger it |
 | `inactive` (nothing in the last 3 data years) | want writers who are working now |
 | `high_volume_catalog` (> 40 works per active year) | content farms / functional-music catalogs (e.g. 450+ "sleep/chill" tracks in 2 years) |
 
-Result on the full data: 658K writers → ~19.8K eligible.
-
 ## Scoring
 There is no streaming or chart data in the bundle, so "recording performance" has to be inferred.
-Spotify was the obvious source, but **in Feb–Mar 2026 Spotify removed `popularity` from the Web API
-for Development Mode apps** (along with artist followers and the batch track endpoint). The provided
-keys are almost certainly dev-mode, so the score is built from signals inside the data, with Spotify
-as an optional layer.
+Spotify was the obvious source, but the Web API **does not expose stream counts**, and Development
+Mode apps lost `popularity`, artist `followers`/`genres`, and batch track fetches in Feb–Mar 2026. The score
+is built from catalog signals, with Spotify as an optional **presence** layer (is the recording
+in the catalog?), plus genres and listen links for the scout — not play counts.
 
 Each component is a **percentile rank within the eligible pool** (0–1), so components with very
 different scales (artist counts vs. ratios) are comparable and outliers don't dominate.
 
-| Component | Signal | Weight (with Spotify) | Weight (catalog-only) |
+| Component | Signal | Weight (with Spotify lookups) | Weight (catalog-only) |
 |---|---|---|---|
-| Reach | distinct artists who recorded their songs | 0.25 | 0.33 |
-| Momentum | recordings in the last 2 data years | 0.20 | 0.27 |
-| Validation | share of songs co-written with *published* writers | 0.15 | 0.20 |
-| Growth | (recent 2y + 1) / (prior 2y + 1) | 0.10 | 0.13 |
-| Depth | number of works | 0.05 | 0.07 |
-| Popularity | avg Spotify popularity of top-3 tracks | 0.25 | — |
+| Reach | distinct artists who recorded their songs | 0.28 | 0.34 |
+| Momentum | recordings in the last 2 data years | 0.22 | 0.27 |
+| Rooms | share of songs co-written with *published* writers | 0.18 | 0.22 |
+| On Spotify | recordings found on Spotify among those looked up | 0.18 | — |
+| Growth | (recent 2y + 1) / (prior 2y + 1) | 0.08 | 0.10 |
+| Depth | number of works | 0.06 | 0.07 |
 
 Why these:
 - **Reach** is the strongest "performance" proxy available: every artist who cuts a writer's song is
@@ -72,11 +88,13 @@ Why these:
 - **Validation**: co-writing with signed writers means they're already in professional sessions.
   It's also the closest thing to a "who else rates them" signal in the data.
 - **Depth** is a light tiebreaker; volume alone is not quality (that's what the farm filter is for).
-- **Popularity** (if available): top-3 average rewards having hits without one fluke dominating.
-  Writers we didn't look up get a neutral 0.5, so they're neither helped nor hurt.
+- **On Spotify** (if looked up): how many of this writer's shortlisted recordings exist on Spotify.
+  Looked-up misses score low (the cut never shipped to the DSP). Writers we didn't look up get a
+  neutral 0.5. Genres and listen URLs are shown in the detail panel; they do not enter the score.
 
 Two-stage ranking so we don't call Spotify ~1.6M times: rank everyone on catalog signals, then
-`make enrich` looks up only the top-N writers' ISRCs, caches them in `spotify_tracks`, and rescores.
+`make enrich` looks up only the top-N writers' ISRCs, caches identity/genres/URLs in `spotify_tracks`,
+and rescores.
 
 ## Stack
 - Python + FastAPI + DuckDB; raw SQL in `backend/sql/` (no ORM), named parameters only.

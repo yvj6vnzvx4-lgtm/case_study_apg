@@ -10,10 +10,21 @@ export function displayName(raw = "") {
     .replace(/\b(Ii|Iii|Iv|Jr|Sr)\b/g, (m) => (m.length <= 3 && m !== "Jr" && m !== "Sr" ? m.toUpperCase() : m + "."));
 }
 
+export const FILTER_ORDER = [
+  "has_publisher",
+  "chain_ambiguous",
+  "not_a_person",
+  "insufficient_data",
+  "legacy_catalog",
+  "inactive",
+  "high_volume_catalog",
+];
+
 export const STATUS_LABELS = {
   eligible: "Ranked",
   has_publisher: "Already have a publisher",
-  insufficient_data: "Fewer than 3 recordings",
+  chain_ambiguous: "On published songs, pointer never hits them",
+  insufficient_data: "Fewer than 3 real cuts (karaoke does not count)",
   legacy_catalog: "Career began before 2010",
   inactive: "No recent recordings",
   not_a_person: "Company or placeholder name",

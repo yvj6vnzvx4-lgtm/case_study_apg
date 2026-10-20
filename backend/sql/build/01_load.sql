@@ -3,13 +3,17 @@
 -- and empty ones (validity_end_date is always NULL).
 -- {parquet_dir} is filled in by app/pipeline.py.
 
+-- IDs sometimes sit inside the name string ('LARRY 260858648 FRICKE').
+CREATE OR REPLACE MACRO _strip_ids(s) AS
+    nullif(trim(regexp_replace(s, '\s*[0-9][0-9][0-9][0-9][0-9][0-9]+\s*', ' ', 'g')), '');
+
 CREATE OR REPLACE TABLE parties AS
 SELECT
     id AS party_id,
     ipi_name_number,
-    cisac_society_id,
-    -- some names have IDs baked in, e.g. 'LARRY 260858648 FRICKE'
-    trim(regexp_replace(full_name, '\s*[0-9][0-9][0-9][0-9][0-9][0-9]+\s*', ' ', 'g')) AS full_name
+    _strip_ids(full_name)  AS full_name,
+    _strip_ids(first_name) AS first_name,
+    _strip_ids(last_name)  AS last_name
 FROM read_parquet('{parquet_dir}/parties.parquet');
 
 CREATE OR REPLACE TABLE works AS
@@ -48,7 +52,15 @@ SELECT
     r.work_id,
     r.isrc,
     r.artist_name,
-    upper(trim(r.artist_name)) AS artist_key,
+    -- Reach counts this key, not the raw credit line. One ISRC often has
+    -- many spellings ("JHAY CORTEZ, BAD BUNNY" vs "JHAYCO,BAD BUNNY").
+    trim(regexp_replace(
+        regexp_replace(
+            regexp_replace(
+                regexp_replace(upper(r.artist_name), '[''"`]+', '', 'g'),
+                '\b(FEAT\.?|FEATURING)\b', ' ', 'g'),
+            '[[:punct:]]+', ' ', 'g'),
+        '\s+', ' ', 'g')) AS artist_key,
     r.release_date,
     coalesce(
         CASE WHEN r.isrc_yy IS NULL OR length(r.isrc) <> 12 THEN NULL

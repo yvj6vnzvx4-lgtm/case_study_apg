@@ -1,45 +1,35 @@
-import { STATUS_LABELS, fmt } from "../lib/format.js";
+import { FILTER_ORDER, STATUS_LABELS, fmt } from "../lib/format.js";
 
-// The eligibility funnel: how the full writer universe narrows to the ranked pool.
-export default function Funnel({ stats, meta }) {
+export default function Funnel({ stats, meta, reveal }) {
+  const byStatus = Object.fromEntries(stats.map((r) => [r.status, r.writers]));
   const total = stats.reduce((s, r) => s + r.writers, 0);
-  const ordered = [
-    ...stats.filter((r) => r.status === "eligible"),
-    ...stats.filter((r) => r.status !== "eligible"),
-  ];
+  let remaining = total;
+  const steps = FILTER_ORDER.map((status) => {
+    const removed = byStatus[status] ?? 0;
+    remaining -= removed;
+    return { status, removed, remaining };
+  });
 
   return (
-    <details className="funnel">
-      <summary>
-        <span className="funnel-headline">
-          <strong>{fmt(meta.eligible_writers)}</strong> of {fmt(total)} writers qualify for ranking
-        </span>
-        <span className="funnel-toggle">How writers are filtered</span>
-        <span className="funnel-bar" aria-hidden="true">
-          {ordered.map((r, i) => (
+    <div className={`filter-walk${reveal ? " is-on" : ""}`}>
+      <ol className="filter-steps">
+        {steps.map((s, i) => (
+          <li key={s.status} style={{ "--i": i }}>
+            <span className="filter-removed num">{fmt(s.removed)} off</span>
+            <strong>{STATUS_LABELS[s.status] ?? s.status}</strong>
+            <span className="filter-remain num">{fmt(s.remaining)} remain</span>
             <span
-              key={r.status}
-              className={`funnel-seg ${r.status === "eligible" ? "is-eligible" : ""}`}
-              style={{ flexGrow: r.writers, "--shade": i }}
-              title={`${STATUS_LABELS[r.status] ?? r.status}: ${fmt(r.writers)}`}
+              className="filter-taper"
+              aria-hidden="true"
+              style={{ width: `${Math.max(8, (100 * s.remaining) / total)}%` }}
             />
-          ))}
-        </span>
-      </summary>
-      <ul className="funnel-legend">
-        {ordered.map((r, i) => (
-          <li key={r.status}>
-            <span className={`swatch ${r.status === "eligible" ? "is-eligible" : ""}`} style={{ "--shade": i }} />
-            <span className="funnel-label">{STATUS_LABELS[r.status] ?? r.status}</span>
-            <span className="num">{fmt(r.writers)}</span>
-            <span className="num muted">{((100 * r.writers) / total).toFixed(1)}%</span>
           </li>
         ))}
-      </ul>
+      </ol>
       <p className="fine">
-        Rules apply in this order, and each writer is counted once under the first rule they hit.
-        "No recent recordings" means nothing since {meta.as_of_year - 2}.
+        Each writer is counted once, under the first rule they hit.
+        Inactive means nothing since {meta.as_of_year - 2}.
       </p>
-    </details>
+    </div>
   );
 }

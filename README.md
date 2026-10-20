@@ -1,7 +1,8 @@
 # Writer Scout
 
 Ranks the top N **unpublished songwriters** for prospective signings, using recording activity
-(who is cutting their songs, how recently, who they write with) and, when available, Spotify popularity.
+(who is cutting their songs, how recently, who they write with) and, when looked up, whether
+those recordings exist on Spotify (plus genres and listen links — not stream counts).
 
 APG case study. Design decisions and trade-offs: [`docs/DECISIONS.md`](docs/DECISIONS.md).
 

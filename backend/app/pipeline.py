@@ -14,4 +14,5 @@ def build(con: duckdb.DuckDBPyConnection, parquet_dir: Path | str) -> None:
 
 
 def rescore(con: duckdb.DuckDBPyConnection) -> None:
+    db.run_script(con, "build/04_spotify.sql")
     db.run_script(con, "build/05_scores.sql")
