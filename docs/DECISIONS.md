@@ -109,19 +109,19 @@ and rescores.
   and it answers "why is this person ranked here?" without opening anything.
 - **Weights come from the API** (`/meta` → `score_weights` table), so the UI never hard-codes them and
   the legend updates automatically if Spotify popularity is added.
-- **Funnel bar** at the top makes the filtering visible: 658K writers → ~19.8K ranked, with each rule's count.
+- **Funnel** makes the filtering visible: 646,889 writers → 486 ranked (publishers, missing pointers, companies, thin catalogs, legacy, inactive).
 - **Detail panel** translates each percentile into plain language ("22 different artists have recorded
   their songs. Top 1% of ranked writers."), lists songs and the artists who cut them, and reminds the
   scout to confirm deal status before reaching out.
 - **Search keeps the global rank** (computed in SQL), so searching a name tells you where they stand overall.
 - CSV export for taking a shortlist into a meeting; responsive layout with a bottom sheet on phones.
-- Tests (30) run the real SQL pipeline on a fixture with one fake writer per rule, and check exact
+- Tests (36) run the real SQL pipeline on a fixture with one fake writer per rule, and check exact
   scores, so a change to weights or filters breaks a test on purpose.
 
 ## Hosting
 - **Build offline, serve a snapshot.** The full DuckDB is ~400 MB, too big for a serverless function
   and mostly rows the site never shows. `make serving` exports only the ranked writers and their
-  songs/recordings to ~5.5 MB of zstd parquet, committed to the repo.
+  songs/recordings to ~0.2 MB of parquet, committed to the repo.
 - The hosted API opens an in-memory DuckDB with one view per parquet file and runs the **same SQL
   files** as local. A test exports a snapshot from the fixture and asserts every endpoint returns
   identical JSON from both, so the two can't drift.
@@ -137,78 +137,78 @@ and rescores.
 
 ## Bonus: ranking in real time
 
-**Today** the ranking is a batch job: rebuild everything from parquet (~1 min), export a snapshot,
-redeploy. That's the right shape for a catalog snapshot that changes weekly, and it's what the
-brief's data supports. If the ranking had to react within seconds to new registrations, releases,
-streams or deals, four things change.
+**Today** the ranking is a batch job: parquet → DuckDB (~1 min) → compact serving snapshot
+(~0.2 MB) → Vercel (FastAPI + Vite). That matches a CISAC-style dump that moves weekly, and it is
+what this brief's files support. If the ranking had to move within seconds of a new registration,
+ISRC, or deal, four things change.
 
-1. **Events in, not files.** Ingest changes as a stream: new/changed share registrations (e.g. CWR
-   from societies), new ISRCs from distributors/DSP feeds, daily stream counts, deal signings. Each
-   event goes on a queue (Kafka, SQS, Vercel Queues) so spikes don't drop data and consumers can replay.
+1. **Events in, not files.** Ingest CWR/share updates, new ISRCs, DSP matches, and deal flags as a
+   stream onto a queue (Kafka, SQS, or Vercel Queues) so spikes replay instead of dropping.
 
-2. **Update features incrementally.** Every feature here is a per-writer aggregate, so an event only
-   touches the writers on the affected song:
-   - new recording of work W → +1 recording (and maybe +1 distinct artist) for each writer on W.
-     Distinct counts need the set of artists per writer (small) or a HyperLogLog sketch at scale.
-   - publisher share registered → the writer's `is_published` flips and they leave the pool at once.
-   - Hard windows ("2023–2024") don't update cleanly in real time, so replace them with
-     **exponential decay**: on each new recording, `momentum = momentum · e^(−λ·Δt) + 1`. O(1) per
-     event, no window to slide, and old activity fades smoothly instead of falling off a cliff.
+2. **Update features incrementally.** Every score input here is a per-writer aggregate, so an event
+   only touches the writers on that song:
+   - new recording of work W → +1 recording (and maybe +1 artist) for each writer on W
+   - publisher share that links, or an unallocated publisher percentage on a multi-writer work →
+     `is_published` flips and they leave the pool immediately (the same graph repairs, as events)
+   - calendar windows ("2023–2024") do not slide cleanly, so replace them with **exponential decay**:
+     `momentum = momentum · e^(−λ·Δt) + 1`. O(1) per event; old activity fades instead of falling
+     off a cliff.
 
-3. **Split scoring from normalization.** Percentile ranks are global: one writer's change nudges
-   everyone's percentile, which would mean rescoring 20K writers per event. Instead, keep the
-   percentile **breakpoints** (e.g. 1,000 quantiles per factor) in a cached table recomputed every
-   few minutes, and score a changed writer against them in O(log n). Rank order is maintained in a
-   sorted index (Redis sorted set or a Postgres index on score), so `GET /writers?limit=25` reads
-   the top of the index instead of sorting.
+3. **Split scoring from normalization.** Percentile ranks are global: one writer's change would
+   rescore the whole pool. Keep quantile **breakpoints** (recomputed every few minutes) and score a
+   changed writer against them in O(log n). Serve `GET /writers?limit=25` from a sorted index
+   (Redis sorted set or Postgres on `score`), not a full `ORDER BY`.
 
-4. **Change storage to match.** DuckDB is excellent for the analytical rebuild but is single-writer.
-   Real time needs a transactional store for row updates (Postgres) plus the sorted index for
-   reads, with DuckDB/parquet kept for the heavy jobs. The API surface stays the same; the web client
-   adds polling or server-sent events for live updates.
+4. **Storage that can take row writes.** DuckDB is the right engine for the analytical rebuild and
+   a poor live primary: one writer at a time. Put live rows in Postgres, the leaderboard in the
+   sorted index, and keep DuckDB/parquet for heavy jobs. The HTTP API stays the same; the web client
+   polls or uses server-sent events.
 
-**Keep a nightly full rebuild** alongside the stream as reconciliation: it corrects drift in the
-incremental counts, re-runs entity resolution (merges can change after the fact: a new IPI can
-reveal two records are one person), and refreshes the decay and percentile tables. Entity
-resolution is the hardest part to do live, so the stream keys on `party_id` and the nightly job
-owns the `party_id → writer_id` mapping.
+**Keep a nightly full rebuild** as reconciliation. It corrects incremental drift, re-runs entity
+resolution (a new IPI can merge two `party_id`s), re-applies pipe-split / residual-publisher
+repairs, and refreshes decay and quantiles. Entity resolution is the part that should not be live:
+the stream keys on `party_id`; the nightly job owns `party_id → writer_id`.
 
-External enrichment (Spotify or similar) stays asynchronous and cached: rate limits make it a
-background queue, never part of the request path.
+Spotify (or any DSP) stays a **background queue, never the request path**. Client-credentials
+Development Mode returned `QUOTA_EXCEEDED` with multi-hour `Retry-After` after a few hundred ISRC
+lookups. Presence belongs in `spotify_tracks`, refreshed asynchronously, exactly as `make enrich`
+does now.
 
 ## Bonus: ranking on something other than catalog success
 
 **Collaboration network position:** rank writers by *who they write with*, not by what their
-songs have done yet.
+songs have already done.
 
-Build a graph where writers are nodes and co-writing a song is an edge. Score each writer with a
-weighted PageRank-style centrality: an edge is worth more when the collaborator is published,
-charting, or themselves highly central. This answers "who is the industry already choosing to work
-with?"
+Writers are nodes; a co-write is an edge. Score with a weighted PageRank: an edge is worth more
+when the collaborator is published, or is themselves central. That answers "who is the industry
+already choosing to sit with?"
 
 Why this one:
-- **It's leading, not lagging.** Writers get pulled into sessions with established writers and
-  producers before their own hits exist. Catalog success tells you who already won; network
-  position tells you who's being let in the room, which is when a signing is cheapest.
-- **It's hard to fake.** Content farms and library accounts co-write among themselves in closed
-  clusters, so they score low. In this data, 11 of the 14 high-volume farm accounts have never
-  written with a published writer.
-- **The data supports it.** It's built from the shares table we already have. Our "validation"
-  factor (share of songs co-written with published writers) is a first-order version: 9,267 of
-  19,786 ranked writers (47%) have at least one published co-writer, and the median ranked writer
-  has 6 distinct co-writers, so the graph is dense enough to rank on. The full version is a
-  recursive SQL query or a few lines of networkx in the build step.
-- **It's actionable for A&R.** The same graph shows *who* connects a writer to the industry, which
-  is a warm introduction and a reference check before outreach.
+- **It's leading, not lagging.** People get pulled into sessions with established writers before
+  they have a catalog anyone can score. Catalog success is who already won; network position is
+  who is being let in the room, which is when a signing is cheapest.
+- **It's hard to fake.** Content farms co-write in closed clusters and stay peripheral. After the
+  unpublished definition was tightened (linked deals, blank pointers, leftover publisher %), the
+  farm filter currently removes **zero** people from this pool — the graph repairs already took
+  the closed catalogs out.
+- **The data already supports a first-order version.** "Rooms" (share of songs co-written with a
+  *published* writer) is 18% of the live score. Of the **486** ranked writers, **91 (19%)** have at
+  least one such cowrite. The remaining pool is sparser than an earlier, looser shortlist because
+  we no longer treat "on a published song, pointer never hits them" as unsigned. The full
+  centrality score is a recursive SQL query or a short NetworkX pass in the build step.
+- **It's actionable for A&R.** The same graph names *who* connects a writer to the industry — a
+  warm introduction and a reference check.
 
-Its blind spots, and what to pair it with:
-- It under-ranks self-contained artist-writers who don't co-write. Flag writers who are also the
-  recording artist on their own songs and review them separately.
-- It's a deal-flow signal, not a commercial one, so use it to find candidates and catalog/streaming
-  data to size the offer.
+Blind spots, and what to pair it with:
+- It under-ranks self-contained artist-writers who rarely co-write. Flag people who are also the
+  recording artist on their own ISRCs and review them separately.
+- It is a deal-flow signal, not a commercial one. Use it to find candidates; use cuts / DSP
+  presence to size the offer.
 
 Other metrics we considered:
-- **Uncollected publisher share**: the share of a writer's recent recordings with no publisher
-  attached. That's revenue nobody is collecting, which values an admin deal on day one.
-- **Roster fit**: writers whose collaborators sit outside APG's current roster, to fill gaps
-  instead of duplicating strengths.
+- **Uncollected publisher share** on *truly bare* recent works (no OriginalPublisher on the song
+  at all). We already treat an unallocated publisher *percentage* as a deal, not as unsigned
+  inventory. What remains bare is closer to "revenue nobody is collecting," which values an admin
+  deal on day one.
+- **Roster fit:** collaborators who sit outside APG's current roster, to fill gaps instead of
+  duplicating strengths.

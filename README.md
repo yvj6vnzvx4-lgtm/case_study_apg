@@ -4,7 +4,9 @@ Ranks the top N **unpublished songwriters** for prospective signings, using reco
 (who is cutting their songs, how recently, who they write with) and, when looked up, whether
 those recordings exist on Spotify (plus genres and listen links — not stream counts).
 
-APG case study. Design decisions and trade-offs: [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Live:** [casestudyapg.vercel.app](https://casestudyapg.vercel.app) (no auth). US streaming shares through February 2025: **646,889** writers in, **486** ranked.
+
+APG case study. Design decisions, funnel, and bonus answers: [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Layout
 ```
@@ -15,8 +17,8 @@ backend/
   sql/export/     compact serving snapshot for the hosted API
   scripts/        build_db.py, export_serving.py, enrich_spotify.py
   serve.py        entrypoint: the API mounted under /api (local and Vercel)
-  serving/        committed parquet snapshot (~5.5 MB, ranked writers only)
-  tests/          pytest; runs the real SQL on a fixture with one fake writer per rule
+  serving/        committed parquet snapshot (~0.2 MB, ranked writers only)
+  tests/          pytest (36); runs the real SQL on a fixture with one fake writer per rule
 web/              React (Vite) client
 docs/DECISIONS.md design decisions + bonus answers
 data/             full built DB (gitignored)
@@ -49,6 +51,8 @@ so `make api` + `make web` works straight after cloning.
 | GET | `/api/meta` | data snapshot date, pool sizes, scoring weights |
 
 ## Hosting
+Public app: [https://casestudyapg.vercel.app](https://casestudyapg.vercel.app)
+
 One Vercel project with two [services](https://vercel.com/docs/services) (see `vercel.json`):
 
 | Service | Root | Public path | What it is |
