@@ -92,9 +92,9 @@ GROUP BY writer_id;
 -- do that; an equality join misses them. ~633k publisher rows point at nobody —
 -- if that work has exactly one unlinked writer, that is the missing chain, not
 -- an unsigned catalog. If a publisher row has a real percentage and points at
--- nobody on a *multi*-writer work, the dump lost the pointer. Treat every
--- unlinked writer on that work as published — better to miss an unsigned
--- cowriter on a messy hit than pitch someone whose share is the unallocated slice.
+-- nobody on a *multi*-writer work, we cannot assign it: writer splits are always
+-- NULL in this dump. Flag every unlinked writer on that song as published for the
+-- shortlist (do not pitch the hit as unsigned). That is not a claim their split is gone.
 CREATE OR REPLACE TABLE writer_shares AS
 WITH publisher_links AS (
     SELECT DISTINCT trim(x) AS preceding_id

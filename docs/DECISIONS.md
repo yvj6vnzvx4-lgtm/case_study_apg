@@ -38,25 +38,45 @@
 
 ## Definition of "unpublished"
 - Shares chain through `preceding_id`: writer → OriginalPublisher → RightsAdministrator.
-- A writer share is published if a publisher share points back to it.
-- A writer is **unpublished** only if *none* of their works has a publisher link (strict), after
-  two repairs the dump needs: split `preceding_id` on `|` (233k rows), and if a work has an
-  OriginalPublisher with a blank `preceding_id` and exactly one unlinked writer, attach it.
-  If a publisher row has a **real percentage** and still points at nobody on a multi-writer
-  work, attach it to every unlinked writer on that song (the dump lost the pointer; the
-  unallocated slice is the deal). Signing someone who already has a publisher on part of
-  their catalog is a different conversation.
+- A writer share is published if a publisher share **points back at that writer’s share**.
+- A writer is **unpublished** only if *none* of their works has such a link, after two repairs
+  the dump needs: split `preceding_id` on `|` (233k rows), and if a work has an OriginalPublisher
+  with a blank `preceding_id` and **exactly one** unlinked writer, attach it (the missing pointer
+  has nowhere else to go).
 - Limitation: this is US streaming shares only. "Unpublished in this data" ≠ unsigned. A human
   still confirms deal status.
 - **Disputed works** (`in_dispute`, ~12.7k): listed on the writer with a flag, excluded from
   reach / eligibility. A fight over the registration is not a cut.
+
+### Splits vs this file (why leftover publisher % is not a closed deal)
+On a real split sheet, if a publisher has claimed part of a song, the rest can still be unsigned —
+that remainder is what a new deal would collect. That only works when **each writer’s split is
+listed**, so you can say whose slice is collected and whose is still open.
+
+This dataset does not have that:
+- All **2.2M writer shares** have `share_percentage` NULL. You never see one cowriter’s cut vs
+  another’s.
+- Publisher rows always have a number, but they **do not add to 100%**. Example: on *Endless
+  Fashion*, original publishers sum to 31% (Sony/ATV **23.5%** with a blank `preceding_id`, WC
+  Music 7.5% pointing at one writer, two 0% rows). *4X4* sums to 18%. US-stream snapshot, 0%
+  placeholders, stacked administrators, missing societies — not a worldwide pie.
+- So that Sony **23.5%** example means “someone is collecting a slice and the pointer is missing.”
+  It does **not** mean this writer is signed, and it does **not** mean the rest of the song is
+  collected.
+
+We still **flag** multi-writer songs that have a leftover publisher % > 0: every unlinked writer
+on that song is treated as `has_publisher` for the shortlist. That is a conservative A&R filter
+(do not walk into a meeting with a writer who only appears on a messy hit), **not** a claim that
+their split is gone. Songs with **no publisher row at all** are the closer proxy for uncollected
+inventory. Signing someone who already has a *pointed* publisher on part of their catalog is a
+different conversation.
 
 ## Eligibility funnel (`GET /stats`)
 Applied in order; each excluded writer keeps a reason, so nothing disappears silently.
 
 | Rule | Why |
 |---|---|
-| `has_publisher` | not a signing candidate. Includes deals stored as `id|id`, a blank preceding_id on a sole writer, or an unallocated publisher percentage on a multi-writer work |
+| `has_publisher` | not a signing candidate. Includes deals stored as `id|id` or a blank preceding_id on a sole writer. Also a conservative flag when a leftover publisher % sits on a multi-writer song with no pointer — not because we can read their split (writer % is always NULL) |
 | `chain_ambiguous` | every work already has an OriginalPublisher on the *song*, but none of those rows point at this writer. The dump cannot tell unsigned cowriter from a missing pointer (Botlok / Elvin). Not a name filter |
 | `not_a_person` | names like PUBLIC DOMAIN, TRADITIONAL, …PUBLISHING, …MUSIC, LLC |
 | `insufficient_data` (< 3 commercial recordings) | karaoke / tribute / piano-channel credits do not count |
@@ -188,7 +208,8 @@ Why this one:
   they have a catalog anyone can score. Catalog success is who already won; network position is
   who is being let in the room, which is when a signing is cheapest.
 - **It's hard to fake.** Content farms co-write in closed clusters and stay peripheral. After the
-  unpublished definition was tightened (linked deals, blank pointers, leftover publisher %), the
+  unpublished definition was tightened (linked deals, blank pointers, leftover publisher % as a
+  conservative flag), the
   farm filter currently removes **zero** people from this pool — the graph repairs already took
   the closed catalogs out.
 - **The data already supports a first-order version.** "Rooms" (share of songs co-written with a
@@ -206,9 +227,10 @@ Blind spots, and what to pair it with:
   presence to size the offer.
 
 Other metrics we considered:
-- **Uncollected publisher share** on *truly bare* recent works (no OriginalPublisher on the song
-  at all). We already treat an unallocated publisher *percentage* as a deal, not as unsigned
-  inventory. What remains bare is closer to "revenue nobody is collecting," which values an admin
-  deal on day one.
+- **Uncollected remainder on a split sheet.** If a publisher has claimed part of a work, the rest
+  is still signable — but only when writer splits exist. They do not in this dump (see Endless
+  Fashion above), so leftover publisher % is not a ranking metric. The closer proxy is *truly
+  bare* recent works (no OriginalPublisher on the song at all): that is inventory nobody in this
+  snapshot is collecting, which values an admin deal on day one.
 - **Roster fit:** collaborators who sit outside APG's current roster, to fill gaps instead of
   duplicating strengths.

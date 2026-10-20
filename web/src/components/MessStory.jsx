@@ -9,7 +9,7 @@ const BEATS = [
   {
     n: "633k",
     line: "Publisher shares that point at nobody.",
-    note: "Warner, Universal, Sony sit on the work with a blank preceding_id. A leftover percentage on a multi-writer hit is a deal, not an unsigned catalog.",
+    note: "Warner, Universal, Sony sit on the work with a blank preceding_id. Writer splits are never in the file, so leftover % is not a closed deal — we still will not pitch that hit as an unsigned catalog.",
   },
   {
     n: "0",
